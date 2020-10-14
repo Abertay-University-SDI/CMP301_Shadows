@@ -28,35 +28,59 @@ float4 calculateLighting(float3 lightDirection, float3 normal, float4 diffuse)
     return colour;
 }
 
+// Is the gemoetry in our shadow map
+bool hasDepthData(float2 uv)
+{
+    if (uv.x < 0.f || uv.x > 1.f || uv.y < 0.f || uv.y > 1.f)
+    {
+        return false;
+    }
+    return true;
+}
+
+bool isInShadow(Texture2D sMap, float2 uv, float4 lightViewPosition, float bias)
+{
+    // Sample the shadow map (get depth of geometry)
+    float depthValue = sMap.Sample(shadowSampler, uv).r;
+	// Calculate the depth from the light.
+    float lightDepthValue = lightViewPosition.z / lightViewPosition.w;
+    lightDepthValue -= bias;
+
+	// Compare the depth of the shadow map value and the depth of the light to determine whether to shadow or to light this pixel.
+    if (lightDepthValue < depthValue)
+    {
+        return false;
+    }
+    return true;
+}
+
+float2 getProjectiveCoords(float4 lightViewPosition)
+{
+    // Calculate the projected texture coordinates.
+    float2 projTex = lightViewPosition.xy / lightViewPosition.w;
+    projTex *= float2(0.5, -0.5);
+    projTex += float2(0.5f, 0.5f);
+    return projTex;
+}
+
 float4 main(InputType input) : SV_TARGET
 {
-    float depthValue;
-    float lightDepthValue;
     float shadowMapBias = 0.005f;
     float4 colour = float4(0.f, 0.f, 0.f, 1.f);
     float4 textureColour = shaderTexture.Sample(diffuseSampler, input.tex);
 
 	// Calculate the projected texture coordinates.
-    float2 pTexCoord = input.lightViewPos.xy / input.lightViewPos.w;
-	pTexCoord *= float2(0.5, -0.5);
-	pTexCoord += float2(0.5f, 0.5f);
-
-    // Determine if the projected coordinates are in the 0 to 1 range.  If not don't do lighting.
-    if (pTexCoord.x < 0.f || pTexCoord.x > 1.f || pTexCoord.y < 0.f || pTexCoord.y > 1.f)
-    {
-        return textureColour;
-    }
+    float2 pTexCoord = getProjectiveCoords(input.lightViewPos);
 	
-    // Sample the shadow map (get depth of geometry)
-    depthValue = depthMapTexture.Sample(shadowSampler, pTexCoord).r;
-	// Calculate the depth from the light.
-    lightDepthValue = input.lightViewPos.z / input.lightViewPos.w;
-    lightDepthValue -= shadowMapBias;
-
-	// Compare the depth of the shadow map value and the depth of the light to determine whether to shadow or to light this pixel.
-    if (lightDepthValue < depthValue)
+    // Shadow test. Is or isn't in shadow
+    if (hasDepthData(pTexCoord))
     {
-        colour = calculateLighting(-direction, input.normal, diffuse);
+        // Has depth map data
+        if (!isInShadow(depthMapTexture, pTexCoord, input.lightViewPos, shadowMapBias))
+        {
+            // is NOT in shadow, therefore light
+            colour = calculateLighting(-direction, input.normal, diffuse);
+        }
     }
     
     colour = saturate(colour + ambient);
